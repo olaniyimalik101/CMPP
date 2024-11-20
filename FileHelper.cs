@@ -1,187 +1,208 @@
-﻿using Interswitch.CRM.SharedFunctions.DataModels;
-using OfficeOpenXml;
+﻿using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Web;
 
-namespace Interswitch.CRM.CustomerPortal.Helpers
+namespace FileColumnReader
 {
     public class FileHelper
     {
-        public static void ValidateFileHeaderContentSize(HttpPostedFileBase file, TransactionType transactionType, int maxNumberOfTransactionRows = 1000)
-        {
-            if (transactionType == null)
-                throw new Exception("Invalid transaction type selected.");
 
-            List<string> orderedHeader = transactionType.TemplateHeaders.Split(',').ToList();
-            if (file == null || orderedHeader == null || orderedHeader.Count < 1)
+        public static void ValidateFileHeaderForSelectedContentSize(byte[] fileBytes, int maxNumberOfTransactionRows = 250)
+        {
+            if (fileBytes == null || fileBytes.Length == 0)
                 throw new Exception("Invalid uploaded file parameters.");
 
-            string fileName = file.FileName;
-            string fileContentType = file.ContentType;
-            byte[] fileBytes = new byte[file.ContentLength];
+            //var header = "Ct.;Date of Wallk-In;First Name;Full Surname Patrilineal-Matrilineal(as applicable);Language  (drop Down);Other Language, please specify;Email;Cell Phone Number;Other Phone Number;DOB;A Number;Family Unit size;Referral?;Referred By";
 
-            using (var package = new ExcelPackage(file.InputStream))
+            Dictionary<string, string> fieldRequirements = new Dictionary<string, string>
             {
-                var sheet = package.Workbook.Worksheets.First();
-                var noOfCol = sheet.Dimension.End.Column;
-                var noOfRow = sheet.Dimension.End.Row;
+                { "Ct.", "NotRequired" },
+                { "Date of Wallk-In", "NotRequired" },
+                { "First Name", "Required" },
+                { "Full Surname Patrilineal-Matrilineal(as applicable)", "Required" },
+                { "Language  (drop Down)", "NotRequired" },
+                { "Other Language, please specify", "NotRequired" },
+                { "Email", "Required" },
+                { "Cell Phone Number", "Required" },
+                { "Other Phone Number", "NotRequired" },
+                { "DOB", "NotRequired" },
+                { "A Number", "Required" },
+                { "Family Unit size", "NotRequired" },
+                { "Referral?", "NotRequired" },
+                { "Referred By", "NotRequired" },
+                {"Location", "Required" }
+            };
 
-                if (noOfCol != orderedHeader.Count())
-                    throw new Exception("The uploaded template does not match the selected transaction type.");
+            var _columnName = fieldRequirements.Keys.ToArray()[0];
+            // Split the header to get the expected column names
+            //List<string> orderedHeader = header.Split(';').ToList();
 
-                if (noOfRow < 2)
-                    throw new Exception("Empty transaction template was uploaded!");
-
-                if (noOfRow > maxNumberOfTransactionRows + 1)
-                    throw new Exception("The uploaded template contains too many transaction records. Maximum allowed is " + maxNumberOfTransactionRows + " records");
-
-                for (int columnPosition = 0; columnPosition < orderedHeader.Count(); columnPosition++)
+            // Create a MemoryStream from the byte array
+            using (var stream = new MemoryStream(fileBytes))
+            {
+                using (var package = new ExcelPackage(stream))
                 {
-                    var cellValue = sheet.Cells[1, columnPosition + 1].Value.ToString();
-                    //var abc = orderedHeader[columnPosition];
-                    if (!cellValue.Equals(orderedHeader[columnPosition]))
-                        throw new Exception("Invalid column Header " + cellValue + " was found in the upload template. Upload template for the selected transaction type.");
-                }
+                    var sheet = package.Workbook.Worksheets.First();
 
-                // Validate all uploaded rows for required fields.
-                // The fields are ordered on the databse (Ordering Column on the 'TransactionTypeFormFieldValidation' table ) such that the required fields come first so only the first set of columns are validated.
-                int numberOfRequiredFields = transactionType.TransactionTypeFormFieldValidations.Where(a => a.IsRequired).Count();
-                bool hasError = false;
-                for (int rowPosition = 2; rowPosition <= noOfRow; rowPosition++)
-                {
-                    for (int columnPosition = 1; columnPosition <= numberOfRequiredFields; columnPosition++)
+                    int noOfCol = 0;
+                    for (int column = 1; column <= sheet.Dimension.End.Column; column++)  // Loop through all columns
                     {
-                        var value = sheet.Cells[rowPosition, columnPosition].Value;
-                        if (value == null)
+                        var cellValue = sheet.Cells[6, column].Value;  // Check cell in the 6th row (headers)
+                        if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
                         {
-                            var columnHeader = sheet.Cells[1, columnPosition].Value.ToString();
-                            throw new Exception("The column '" + columnHeader + "' is required. Kindly complete the uploaded template and try again.");
+                            noOfCol++;
                         }
                     }
-                }
 
-                file.InputStream.Seek(0, System.IO.SeekOrigin.Begin);
-            }
-        }
-
-        public static void ValidateFileHeaderForRequestSend(HttpPostedFileBase file, int maxNumberOfTransactionRows = 1000)
-        {
-            if (file == null)
-                throw new Exception("Invalid uploaded file parameters.");
-
-            int orderedHeader = 1;
-
-
-            string fileName = file.FileName;
-            string fileContentType = file.ContentType;
-            byte[] fileBytes = new byte[file.ContentLength];
-
-            using (var package = new ExcelPackage(file.InputStream))
-            {
-                var sheet = package.Workbook.Worksheets.First();
-                var noOfCol = sheet.Dimension.End.Column;
-                var noOfRow = sheet.Dimension.End.Row;
-
-                if (noOfCol != orderedHeader)
-                    throw new Exception("The uploaded template does not match the selected issue type.");
-
-                if (noOfRow < 2)
-                    throw new Exception("Empty attachment template was uploaded!");
-
-                if (noOfRow < 3)
-                    throw new Exception("single log code was uploaded!. Please use the single option from the log code volume List");
-
-                if (noOfRow > maxNumberOfTransactionRows + 1)
-                    throw new Exception("The uploaded template contains too many Log codes. Maximum allowed is " + maxNumberOfTransactionRows + " records");
-
-                file.InputStream.Seek(0, System.IO.SeekOrigin.Begin);
-            }
-        }
-
-        public static void ValidateFileHeaderForSelectedContentSize(HttpPostedFileBase file, string Issuetype, int maxNumberOfTransactionRows = 1000)
-        {
-            if (file == null)
-                throw new Exception("Invalid uploaded file parameters.");
-
-            var _header = string.Empty;
-            int numberOfRequiredFields = 0;
-
-            if (Issuetype == "UnavailableonArbiter")
-            {
-                _header = "First Six Digits and Last Four Digit of Maskedpan,STAN,RRN,Terminal ID,Amount,Date";
-                numberOfRequiredFields = 6;
-            }
-            else if (Issuetype == "transactionSettlementDateInq")
-            {
-                _header = "Channel Transaction Reference No,Amount,Date";
-
-                numberOfRequiredFields = 3;
-            }
-            else if (Issuetype == "requestForReport")
-            {
-                _header = "Termnal ID,Start Date,End Date";
-
-                numberOfRequiredFields = 3;
-            }
-
-            //var header_ = "First Six Digits and Last Four Digit of Maskedpan,STAN,RRN,Terminal ID,Amount,Date";
-
-            List<string> orderedHeader = _header.Split(',').ToList();
-            //List<string> orderedHeader = list;
-            //int orderedHeader = 6;
-
-            string fileName = file.FileName;
-            string fileContentType = file.ContentType;
-            byte[] fileBytes = new byte[file.ContentLength];
-
-            using (var package = new ExcelPackage(file.InputStream))
-            {
-                var sheet = package.Workbook.Worksheets.First();
-                var noOfCol = sheet.Dimension.End.Column;
-                var noOfRow = sheet.Dimension.End.Row;
-
-                if (noOfCol != orderedHeader.Count())
-                    throw new Exception("The uploaded template does not match the selected issue type.");
-
-                if (noOfRow < 2)
-                    throw new Exception("Empty attachment template was uploaded!");
-
-                if (noOfRow < 3)
-                    throw new Exception("single transaction info was uploaded!. Please use the single option from the Volume/issue List");
-
-                if (noOfRow > maxNumberOfTransactionRows + 1)
-                    throw new Exception("The uploaded template contains too many transactions. Maximum allowed is " + maxNumberOfTransactionRows + " records");
-
-                for (int columnPosition = 0; columnPosition < orderedHeader.Count(); columnPosition++)
-                {
-                    var cellValue = sheet.Cells[1, columnPosition + 1].Value.ToString();
-                    //var abc = orderedHeader[columnPosition];
-                    if (!cellValue.Equals(orderedHeader[columnPosition]))
-                        throw new Exception("Invalid column Header " + cellValue + " was found in the upload template. Upload template for the selected transaction type.");
-                }
-
-                // Validate all uploaded rows for required fields.
-                // The fields are ordered on the databse (Ordering Column on the 'TransactionTypeFormFieldValidation' table ) such that the required fields come first so only the first set of columns are validated.
-                //int numberOfRequiredFields = 6;
-                bool hasError = false;
-                for (int rowPosition = 2; rowPosition <= noOfRow; rowPosition++)
-                {
-                    for (int columnPosition = 1; columnPosition <= numberOfRequiredFields; columnPosition++)
+                    int noOfRow = 0;
+                    for (int row = 7; row <= sheet.Dimension.End.Row; row++)  // Start from row 7 as per your requirement
                     {
-                        var value = sheet.Cells[rowPosition, columnPosition].Value;
-                        if (value == null)
+                        var cellValue = sheet.Cells[row, 4].Value;  // Check column 4 for data
+                        if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
                         {
-                            var columnHeader = sheet.Cells[1, columnPosition].Value.ToString();
-                            throw new Exception("The column '" + columnHeader + "' is required. Kindly complete the uploaded template and try again.");
+                            noOfRow++;
                         }
                     }
-                }
 
-                file.InputStream.Seek(0, System.IO.SeekOrigin.Begin);
+                    if (fieldRequirements.Count == noOfCol)
+                    {
+                        // Get the column names from the file (header row, 6th row)
+                        List<string> columns = new List<string>();
+                        for (int column = 1; column <= noOfCol; column++)
+                        {
+                            var cellValue = sheet.Cells[6, column].Value;
+                            if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
+                            {
+                                // Add non-empty column to the list
+                                columns.Add(cellValue.ToString().Replace("\n", " ").Trim());
+                            }
+                            else
+                            {
+                                // Handle empty columns: print the column name (from dictionary) and that it's empty
+                                var columnName = fieldRequirements.Keys.ToArray()[column - 1];  // Get corresponding dictionary key
+                                Console.WriteLine($"Column '{columnName}' is empty in the file.");
+                            }
+                        }
+
+                        // Check if each column name matches the corresponding key in the dictionary
+                        for (int i = 0; i < columns.Count; i++)
+                        {
+                            if (columns[i] != fieldRequirements.Keys.ToArray()[i])
+                            {
+                                var mesg = $"Mismatch at index {i}: Column '{columns[i]}' does not match name in the template '{fieldRequirements.Keys.ToArray()[i]}'.";
+                                Console.WriteLine(mesg);
+                            }
+                        }
+
+                    }
+                    else
+                    {
+                        Console.WriteLine("The number of columns in the file does not match the number of keys in the dictionary.");
+                    }
+
+                    //var noOfRow = sheet.Dimension.End.Row;
+
+                    //if (noOfCol != orderedHeader.Count())
+                    //    throw new Exception("The uploaded template does not match the accepted template");
+
+                    if (noOfRow < 1)
+                        throw new Exception("Empty file template was uploaded!");
+
+                    if (noOfRow > maxNumberOfTransactionRows + 1)
+                        throw new Exception($"The uploaded template contains too many transactions. Maximum allowed is {maxNumberOfTransactionRows} records");
+
+                    // Get a list of column indexes for required fields
+                    List<int> requiredColumnIndexes = new List<int>();
+                    List<string> requiredColumns = new List<string>();
+
+                    // Loop through the dictionary and find the indexes of required fields
+                    foreach (var field in fieldRequirements)
+                    {
+                        if (field.Value == "Required")
+                        {
+                            requiredColumns.Add(field.Key);  // Store the column name
+                        }
+                    }
+
+                    // Get the column headers from the sheet (assumed to be in row 6)
+                    List<string> columnHeaders = new List<string>();
+                    for (int column = 1; column <= noOfCol; column++)
+                    {
+                        var cellValue = sheet.Cells[6, column].Text;  // Get header text from the 6th row
+                        columnHeaders.Add(cellValue.Replace("\n", " ").Trim());
+                    }
+
+                    // Find the index of each required field column in the sheet
+                    foreach (var requiredColumn in requiredColumns)
+                    {
+                        int columnIndex = columnHeaders.IndexOf(requiredColumn) + 1; // +1 because EPPlus is 1-based indexing
+                        if (columnIndex > 0) // If the column is found in the header row
+                        {
+                            requiredColumnIndexes.Add(columnIndex);  // Store the column index for required fields
+                        }
+                    }
+
+                    // Loop through the rows and check for missing values in required fields
+                    for (int row = 7; row <= noOfRow; row++)  // Starting from row 7 (data starts after row 6)
+                    {
+                        foreach (var columnIndex in requiredColumnIndexes)
+                        {
+                            var cellValue = sheet.Cells[row, columnIndex].Text.Trim();  // Get cell value in the required column
+                            if (string.IsNullOrWhiteSpace(cellValue))
+                            {
+                                // If the cell is empty and the column is required, log an error
+                                Console.WriteLine($"Error: Missing value in required column '{columnHeaders[columnIndex - 1]}' for row {row}.");
+                            }
+                        }
+                    }
+
+                }
             }
         }
+
+
+        public static byte[] CreateExcelFromFailedRecords(List<string> failedRecords)
+        {
+                // Create a memory stream to store the Excel file
+                using (var memoryStream = new MemoryStream())
+                {
+                    // Initialize EPPlus to create the Excel file
+                    using (var package = new ExcelPackage(memoryStream))
+                    {
+                        // Add a worksheet to the Excel file
+                        var worksheet = package.Workbook.Worksheets.Add("Failed Records");
+
+                        // Add headers to the worksheet (assuming the structure of failed record details)
+                        worksheet.Cells[1, 1].Value = "Row Position";
+                        worksheet.Cells[1, 2].Value = "First Name";
+                        worksheet.Cells[1, 3].Value = "Last Name";
+                        worksheet.Cells[1, 4].Value = "A Number";
+                        worksheet.Cells[1, 5].Value = "Error";
+
+                        // Fill the worksheet with the failed records
+                        int row = 2; // Start from the second row (because the first row is headers)
+                        foreach (var record in failedRecords)
+                        {
+                            var recordParts = record.Split(',');  // Split each failed record into parts
+                            for (int col = 0; col < recordParts.Length; col++)
+                            {
+                                worksheet.Cells[row, col + 1].Value = recordParts[col].Trim(); // Write to the cells
+                            }
+                            row++;
+                        }
+
+                        // Save the package to the memory stream
+                        package.Save();
+                    }
+
+                    // Return the byte array of the Excel file
+                    return memoryStream.ToArray();
+                }
+        }
+        
 
     }
 }
