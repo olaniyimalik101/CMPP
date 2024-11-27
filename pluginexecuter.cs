@@ -74,7 +74,6 @@ namespace Vrp.Crm.C360.Plugins.Plugins
 
 
                 tracingService.Trace(ex.Message);
-                ExceptionLog.ExceptionLogs("Middleware", string.Empty, string.Empty, null, ex.Message.ToString(), ex.Message.ToString(), "Vrp.Crm.C360.GetMotorClaimDetailPluginActionExecuter", service);
                 throw new InvalidPluginExecutionException(ex.Message);
             }
         }
