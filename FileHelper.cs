@@ -1,208 +1,163 @@
-﻿using OfficeOpenXml;
+﻿using DHS.CMPP.Plugins.Helper;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Web;
 
-namespace FileColumnReader
+namespace DHS.CMPP.Plugins2.Helper
 {
     public class FileHelper
     {
-
-        public static void ValidateFileHeaderForSelectedContentSize(byte[] fileBytes, int maxNumberOfTransactionRows = 250)
+        public static validationResponse ValidateFile(byte[] fileBytes, int maxNumberOfTransactionRows = 100)
         {
+            List<string> errorList = new List<string>();
+
+            // Check for null or empty file
             if (fileBytes == null || fileBytes.Length == 0)
-                throw new Exception("Invalid uploaded file parameters.");
-
-            //var header = "Ct.;Date of Wallk-In;First Name;Full Surname Patrilineal-Matrilineal(as applicable);Language  (drop Down);Other Language, please specify;Email;Cell Phone Number;Other Phone Number;DOB;A Number;Family Unit size;Referral?;Referred By";
-
-            Dictionary<string, string> fieldRequirements = new Dictionary<string, string>
             {
-                { "Ct.", "NotRequired" },
-                { "Date of Wallk-In", "NotRequired" },
-                { "First Name", "Required" },
-                { "Full Surname Patrilineal-Matrilineal(as applicable)", "Required" },
-                { "Language  (drop Down)", "NotRequired" },
-                { "Other Language, please specify", "NotRequired" },
-                { "Email", "Required" },
-                { "Cell Phone Number", "Required" },
-                { "Other Phone Number", "NotRequired" },
-                { "DOB", "NotRequired" },
-                { "A Number", "Required" },
-                { "Family Unit size", "NotRequired" },
-                { "Referral?", "NotRequired" },
-                { "Referred By", "NotRequired" },
-                {"Location", "Required" }
+                errorList.Add("No content found in the imported file.");
+            }
+
+            // Check if the file is an Excel file (either .xlsx or .xls)
+            if (!IsExcelFile(fileBytes))
+            {
+                errorList.Add("The uploaded file is not an Excel file. Please upload a valid Excel file.");
+            }
+
+
+            // expected header columns
+            var orderedHeader = new List<string>
+            {
+                "Ct.", "Date of Wallk-In", "First Name", "Full Surname Patrilineal-Matrilineal(as applicable)", "Language  (drop Down)", "Other Language, please specify",
+                "Email", "Cell Phone Number", "Other Phone Number", "DOB", "A Number", "Family Unit size", "Referral?", "Referred By", "Location"
             };
 
-            var _columnName = fieldRequirements.Keys.ToArray()[0];
-            // Split the header to get the expected column names
-            //List<string> orderedHeader = header.Split(';').ToList();
-
-            // Create a MemoryStream from the byte array
-            using (var stream = new MemoryStream(fileBytes))
+            // Open the byte array as a memory stream and load the document
+            using (var memoryStream = new MemoryStream(fileBytes))
             {
-                using (var package = new ExcelPackage(stream))
+                using (SpreadsheetDocument document = SpreadsheetDocument.Open(memoryStream, false))
                 {
-                    var sheet = package.Workbook.Worksheets.First();
+                    // Get the first worksheet
+                    var sheet = document.WorkbookPart.Workbook.Sheets.Elements<Sheet>().First();
+                    var worksheetPart = (WorksheetPart)document.WorkbookPart.GetPartById(sheet.Id);
+                    var sheetData = worksheetPart.Worksheet.Elements<SheetData>().First();
 
                     int noOfCol = 0;
-                    for (int column = 1; column <= sheet.Dimension.End.Column; column++)  // Loop through all columns
+
+                    // Get the header row (6th row, zero-based index is 5)
+                    var headerRow = sheetData.Elements<Row>().ElementAt(5);
+                    foreach (var cell in headerRow.Elements<Cell>())
                     {
-                        var cellValue = sheet.Cells[6, column].Value;  // Check cell in the 6th row (headers)
-                        if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
+                        var cellValue = GetCellValue(document, cell);
+                        if (!string.IsNullOrEmpty(cellValue))
                         {
                             noOfCol++;
                         }
                     }
 
                     int noOfRow = 0;
-                    for (int row = 7; row <= sheet.Dimension.End.Row; row++)  // Start from row 7 as per your requirement
+
+                    // Validate rows starting from row 7 (zero-based index is 6)
+                    foreach (var row in sheetData.Elements<Row>().Skip(6))
                     {
-                        var cellValue = sheet.Cells[row, 4].Value;  // Check column 4 for data
-                        if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
+                        // Get the cell values for columns 2 to 15 (zero-based indices 1 to 14)
+                        var columnValues = row.Elements<Cell>()
+                            .Skip(1) // Skip the first column (serial number column)
+                            .Take(14 - 1)  // Take the next 14 columns (columns 2 to 15)
+                            .Select(cell => GetCellValue(document, cell))  // Get value for each cell
+                            .ToList();
+
+                        // Check if at least one column has a non-empty value
+                        if (columnValues.Any(value => !string.IsNullOrEmpty(value)))
                         {
+                            // Increment row count if at least one of the columns 2-15 has a value
                             noOfRow++;
                         }
                     }
 
-                    if (fieldRequirements.Count == noOfCol)
-                    {
-                        // Get the column names from the file (header row, 6th row)
-                        List<string> columns = new List<string>();
-                        for (int column = 1; column <= noOfCol; column++)
-                        {
-                            var cellValue = sheet.Cells[6, column].Value;
-                            if (cellValue != null && !string.IsNullOrWhiteSpace(cellValue.ToString()))
-                            {
-                                // Add non-empty column to the list
-                                columns.Add(cellValue.ToString().Replace("\n", " ").Trim());
-                            }
-                            else
-                            {
-                                // Handle empty columns: print the column name (from dictionary) and that it's empty
-                                var columnName = fieldRequirements.Keys.ToArray()[column - 1];  // Get corresponding dictionary key
-                                Console.WriteLine($"Column '{columnName}' is empty in the file.");
-                            }
-                        }
 
-                        // Check if each column name matches the corresponding key in the dictionary
-                        for (int i = 0; i < columns.Count; i++)
-                        {
-                            if (columns[i] != fieldRequirements.Keys.ToArray()[i])
-                            {
-                                var mesg = $"Mismatch at index {i}: Column '{columns[i]}' does not match name in the template '{fieldRequirements.Keys.ToArray()[i]}'.";
-                                Console.WriteLine(mesg);
-                            }
-                        }
 
-                    }
-                    else
+                    // Ensure the column count matches the expected header count
+                    if (noOfCol != orderedHeader.Count)
                     {
-                        Console.WriteLine("The number of columns in the file does not match the number of keys in the dictionary.");
+                        errorList.Add("The number of columns do not match with the corresponding number in the template.");
                     }
 
-                    //var noOfRow = sheet.Dimension.End.Row;
-
-                    //if (noOfCol != orderedHeader.Count())
-                    //    throw new Exception("The uploaded template does not match the accepted template");
-
+                    // Check if there are any rows with data
                     if (noOfRow < 1)
-                        throw new Exception("Empty file template was uploaded!");
+                    {
+                        errorList.Add("No Participant record was found in the file!");
+                    }
 
+                    // Ensure the row count does not exceed the allowed limit
                     if (noOfRow > maxNumberOfTransactionRows + 1)
-                        throw new Exception($"The uploaded template contains too many transactions. Maximum allowed is {maxNumberOfTransactionRows} records");
-
-                    // Get a list of column indexes for required fields
-                    List<int> requiredColumnIndexes = new List<int>();
-                    List<string> requiredColumns = new List<string>();
-
-                    // Loop through the dictionary and find the indexes of required fields
-                    foreach (var field in fieldRequirements)
                     {
-                        if (field.Value == "Required")
+                        errorList.Add($"The uploaded template contains too many records. Maximum allowed is {maxNumberOfTransactionRows} records.");
+                    }
+
+                    // Validate that each column header matches the expected header and check for missing columns
+                    var missingColumns = new List<string>();
+                    for (int columnPosition = 0; columnPosition < orderedHeader.Count; columnPosition++)
+                    {
+                        var cell = headerRow.Elements<Cell>().ElementAtOrDefault(columnPosition);
+                        if (cell == null || GetCellValue(document, cell).Trim() != orderedHeader[columnPosition])
                         {
-                            requiredColumns.Add(field.Key);  // Store the column name
+                            missingColumns.Add(orderedHeader[columnPosition]);
                         }
                     }
 
-                    // Get the column headers from the sheet (assumed to be in row 6)
-                    List<string> columnHeaders = new List<string>();
-                    for (int column = 1; column <= noOfCol; column++)
+                    if (missingColumns.Any())
                     {
-                        var cellValue = sheet.Cells[6, column].Text;  // Get header text from the 6th row
-                        columnHeaders.Add(cellValue.Replace("\n", " ").Trim());
+                        errorList.Add($"The following columns are missing or incorrect: {string.Join(", ", missingColumns)}");
                     }
-
-                    // Find the index of each required field column in the sheet
-                    foreach (var requiredColumn in requiredColumns)
-                    {
-                        int columnIndex = columnHeaders.IndexOf(requiredColumn) + 1; // +1 because EPPlus is 1-based indexing
-                        if (columnIndex > 0) // If the column is found in the header row
-                        {
-                            requiredColumnIndexes.Add(columnIndex);  // Store the column index for required fields
-                        }
-                    }
-
-                    // Loop through the rows and check for missing values in required fields
-                    for (int row = 7; row <= noOfRow; row++)  // Starting from row 7 (data starts after row 6)
-                    {
-                        foreach (var columnIndex in requiredColumnIndexes)
-                        {
-                            var cellValue = sheet.Cells[row, columnIndex].Text.Trim();  // Get cell value in the required column
-                            if (string.IsNullOrWhiteSpace(cellValue))
-                            {
-                                // If the cell is empty and the column is required, log an error
-                                Console.WriteLine($"Error: Missing value in required column '{columnHeaders[columnIndex - 1]}' for row {row}.");
-                            }
-                        }
-                    }
-
                 }
+            }
+
+            // If any validation error exists, return a failure response
+            if (errorList.Any())
+            {
+                return new validationResponse { IsSuccess = false, failureReason = errorList };
+            }
+
+            return new validationResponse { IsSuccess = true, failureReason = null };
+        }
+
+        // Helper function to check if the file is an Excel file (either .xlsx or .xls)
+        private static bool IsExcelFile(byte[] fileBytes)
+        {
+            try
+            {
+                // Read the file header to check for Excel signature
+                var fileSignature = fileBytes.Take(4).ToArray();
+                // Check for .xlsx (.xml-based format) signature
+                var xlsxSignature = new byte[] { 80, 75, 3, 4 }; // PK\x03\x04 for .xlsx
+                // Check for .xls (binary format) signature (file starts with D0 CF 11 E0 A1 B1 1A E1)
+                var xlsSignature = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
+
+                // Check if the file is either .xlsx or .xls based on signature
+                return fileSignature.SequenceEqual(xlsxSignature) || fileSignature.Take(xlsSignature.Length).SequenceEqual(xlsSignature);
+            }
+            catch
+            {
+                return false;
             }
         }
 
-
-        public static byte[] CreateExcelFromFailedRecords(List<string> failedRecords)
+        // Helper function to retrieve the value of a cell, handling shared strings and other types
+        private static string GetCellValue(SpreadsheetDocument document, Cell cell)
         {
-                // Create a memory stream to store the Excel file
-                using (var memoryStream = new MemoryStream())
-                {
-                    // Initialize EPPlus to create the Excel file
-                    using (var package = new ExcelPackage(memoryStream))
-                    {
-                        // Add a worksheet to the Excel file
-                        var worksheet = package.Workbook.Worksheets.Add("Failed Records");
+            if (cell == null || cell.DataType == null) return string.Empty;
 
-                        // Add headers to the worksheet (assuming the structure of failed record details)
-                        worksheet.Cells[1, 1].Value = "Row Position";
-                        worksheet.Cells[1, 2].Value = "First Name";
-                        worksheet.Cells[1, 3].Value = "Last Name";
-                        worksheet.Cells[1, 4].Value = "A Number";
-                        worksheet.Cells[1, 5].Value = "Error";
+            var value = cell.CellValue?.Text;
+            if (cell.DataType == CellValues.SharedString)
+            {
+                var sharedStringItem = document.WorkbookPart.SharedStringTablePart.SharedStringTable.Elements<SharedStringItem>().ElementAt(int.Parse(value));
+                return sharedStringItem.Text?.Text ?? sharedStringItem.InnerText;
+            }
 
-                        // Fill the worksheet with the failed records
-                        int row = 2; // Start from the second row (because the first row is headers)
-                        foreach (var record in failedRecords)
-                        {
-                            var recordParts = record.Split(',');  // Split each failed record into parts
-                            for (int col = 0; col < recordParts.Length; col++)
-                            {
-                                worksheet.Cells[row, col + 1].Value = recordParts[col].Trim(); // Write to the cells
-                            }
-                            row++;
-                        }
-
-                        // Save the package to the memory stream
-                        package.Save();
-                    }
-
-                    // Return the byte array of the Excel file
-                    return memoryStream.ToArray();
-                }
+            return value ?? string.Empty;
         }
-        
-
     }
 }
