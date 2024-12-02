@@ -1,16 +1,16 @@
-﻿using DHS.CMPP.Plugins.Helper;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
+using FileColumnReader;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace DHS.CMPP.Plugins2.Helper
+namespace FileColumnReader
 {
     public class FileHelper
     {
-        public static validationResponse ValidateFile(byte[] fileBytes, int maxNumberOfTransactionRows = 100)
+        public static ValidationResponse ValidateFile(byte[] fileBytes, int maxNumberOfTransactionRows = 100)
         {
             List<string> errorList = new List<string>();
 
@@ -102,7 +102,7 @@ namespace DHS.CMPP.Plugins2.Helper
                     for (int columnPosition = 0; columnPosition < orderedHeader.Count; columnPosition++)
                     {
                         var cell = headerRow.Elements<Cell>().ElementAtOrDefault(columnPosition);
-                        if (cell == null || GetCellValue(document, cell).Trim() != orderedHeader[columnPosition])
+                        if (cell == null || GetCellValue(document, cell).Replace("\n", " ").Trim() != orderedHeader[columnPosition])
                         {
                             missingColumns.Add(orderedHeader[columnPosition]);
                         }
@@ -118,10 +118,10 @@ namespace DHS.CMPP.Plugins2.Helper
             // If any validation error exists, return a failure response
             if (errorList.Any())
             {
-                return new validationResponse { IsSuccess = false, failureReason = errorList };
+                return new ValidationResponse { IsSuccess = false, failureReason = errorList };
             }
 
-            return new validationResponse { IsSuccess = true, failureReason = null };
+            return new ValidationResponse { IsSuccess = true, failureReason = null };
         }
 
         // Helper function to check if the file is an Excel file (either .xlsx or .xls)
@@ -129,21 +129,34 @@ namespace DHS.CMPP.Plugins2.Helper
         {
             try
             {
-                // Read the file header to check for Excel signature
-                var fileSignature = fileBytes.Take(4).ToArray();
-                // Check for .xlsx (.xml-based format) signature
-                var xlsxSignature = new byte[] { 80, 75, 3, 4 }; // PK\x03\x04 for .xlsx
-                // Check for .xls (binary format) signature (file starts with D0 CF 11 E0 A1 B1 1A E1)
+                // Check if file has enough length to check for signatures
+                if (fileBytes.Length < 8)
+                {
+                    return false; // Not a valid Excel file if it's too small
+                }
+
+                // Check for .xlsx (.xml-based format) signature (PK\x03\x04)
+                var xlsxSignature = new byte[] { 80, 75, 3, 4 };
+
+                // Check for .xls (binary format) signature (D0 CF 11 E0 A1 B1 1A E1)
                 var xlsSignature = new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1 };
 
-                // Check if the file is either .xlsx or .xls based on signature
-                return fileSignature.SequenceEqual(xlsxSignature) || fileSignature.Take(xlsSignature.Length).SequenceEqual(xlsSignature);
+                // Check if the file matches the .xlsx or .xls signature
+                if (fileBytes.Take(xlsxSignature.Length).SequenceEqual(xlsxSignature) ||
+                    fileBytes.Take(xlsSignature.Length).SequenceEqual(xlsSignature))
+                {
+                    return true; // Valid Excel file
+                }
+
+                return false; // Not a valid Excel file
             }
             catch
             {
-                return false;
+                return false; // In case of any errors, return false
             }
         }
+
+
 
         // Helper function to retrieve the value of a cell, handling shared strings and other types
         private static string GetCellValue(SpreadsheetDocument document, Cell cell)
