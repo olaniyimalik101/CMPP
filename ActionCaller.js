@@ -1,4 +1,4 @@
-function fetchMotorClaimDetail(primaryControl) {
+function BeginFileImport(primaryControl) {
     let formContext = primaryControl;
     let duplicateOption = formContext.getAttribute("cmpp_duplicatehandling").getValue();
     let pluginCalled = false;
