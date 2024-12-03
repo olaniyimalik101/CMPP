@@ -13,7 +13,7 @@ function fetchMotorClaimDetail(primaryControl) {
 
     if (!pluginCalled) {
         var objActionCallRequest = null;
-        let actionName = "cmpp_validateandimportfile";
+        let actionName = "cmpp_FileValidationandImport";
 
         var parameters = {};
         var entity = {};
