@@ -304,4 +304,45 @@ function saveCreatecasetoggle(executionContext) {
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+function exportPdfDocument() {
+    var orgUrl = Xrm.Utility.getGlobalContext().getClientUrl(); // Get the URL of the CRM instance
+    var apiEndpoint = "/api/data/v9.0/ExportPdfDocument";
+
+    var requestData = {
+        "EntityTypeCode": 1084,
+        "SelectedTemplate": {
+            "@odata.type": "Microsoft.Dynamics.CRM.documenttemplate",
+            "documenttemplateid": "153dc496-d79d-e711-8109-e0071b65ce81"
+        },
+        "SelectedRecords": "[\"{E3A79DA1-9B91-E811-8133-E0071B65CE81}\"]"
+    };
+
+    // Construct the full API URL
+    var fullUrl = orgUrl + apiEndpoint;
+
+    // Use XMLHttpRequest or Fetch API to make the POST request
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", fullUrl, true);
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.setRequestHeader("Content-Type", "application/json");
+
+    // Success callback
+    xhr.onload = function () {
+        if (xhr.status === 200) {
+            console.log("PDF Export successful");
+            var response = JSON.parse(xhr.responseText);
+            // Handle the response here, e.g., display the PDF or save it.
+        } else {
+            console.error("Error exporting PDF", xhr.responseText);
+        }
+    };
+
+    // Error callback
+    xhr.onerror = function () {
+        console.error("Request failed", xhr.statusText);
+    };
+
+    // Send the request with the data
+    xhr.send(JSON.stringify(requestData));
+}
 
