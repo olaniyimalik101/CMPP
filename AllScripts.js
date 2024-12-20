@@ -332,6 +332,33 @@ function exportPdfDocument() {
             console.log("PDF Export successful");
             var response = JSON.parse(xhr.responseText);
             // Handle the response here, e.g., display the PDF or save it.
+            // Extract the base64-encoded PDF file from the JSON response
+            const base64Pdf = response.PdfFile;
+            
+            // Decode the Base64 string and convert it to a Blob for download
+            const byteCharacters = atob(base64Pdf);
+            const byteArrays = [];
+            
+            for (let offset = 0; offset < byteCharacters.length; offset += 1024) {
+                const byteArray = new Uint8Array(1024);
+                for (let i = 0; i < 1024; i++) {
+                    if (offset + i < byteCharacters.length) {
+                        byteArray[i] = byteCharacters.charCodeAt(offset + i);
+                    }
+                }
+                byteArrays.push(byteArray);
+            }
+            
+            // Create a Blob object from the byte arrays
+            const blob = new Blob(byteArrays, { type: 'application/pdf' });
+            
+            // Create a link element to trigger the download
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'document.pdf'; // Specify the file name
+            link.click();
+
+
         } else {
             console.error("Error exporting PDF", xhr.responseText);
         }
