@@ -11,3 +11,7 @@ https://community.powerplatform.com/forums/thread/details/?threadid=a18660bd-976
 
 sending email
 https://community.dynamics.com/blogs/post/?postid=79921875-d019-4191-8886-03c442e59e37
+
+
+
+https://gist.github.com/pawelgradecki/61150022552056a4c3ed8b5fd52675a7
